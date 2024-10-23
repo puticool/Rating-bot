@@ -47,7 +47,7 @@ class Rating {
     async countdown(seconds) {
         for (let i = seconds; i >= 0; i--) {
             readline.cursorTo(process.stdout, 0);
-            process.stdout.write(`===== Chờ ${i} giây để tiếp tục vòng lặp =====`);
+            process.stdout.write(`===== Waiting ${i} seconds to continue the loop =====`);
             await new Promise(resolve => setTimeout(resolve, 1000));
         }
         this.log('', 'info');
@@ -199,9 +199,9 @@ class Rating {
 
                     if (executeResult.success && executeResult.data.result) {
                         const reward = task.item[0]?.count || 'unknown';
-                        this.log(`Làm nhiệm vụ ${task.title} thành công | phần thưởng ${reward}`, 'success');
+                        this.log(`Completed task ${task.title} | reward: ${reward}`, 'success');
                     } else {
-                        this.log(`Không thể hoàn thành nhiệm vụ ${task.title}`, 'error');
+                        this.log(`Unable to complete task ${task.title}`, 'error');
                     }
                 }
             }
@@ -229,9 +229,9 @@ class Rating {
                 const auth = data[i];
                 const userId = JSON.parse(decodeURIComponent(auth.split('user=')[1].split('&')[0])).id;
 
-                console.log(`========== Tài khoản ${i + 1} | ID: ${userId} ==========`);
+                console.log(`🔹 ========== Account ${i + 1} | ID: ${userId} ==========`);
                 
-                this.log(`Đang xác thực tài khoản ${userId}...`, 'info');
+                this.log(`Authenticating account ${userId}...`, 'info');
                 let token = tokens[userId];
                 if (!token) {
                     const authResult = await this.authenticate(auth);
@@ -239,31 +239,31 @@ class Rating {
                         token = authResult.token;
                         tokens[userId] = token;
                         fs.writeFileSync(tokenFile, JSON.stringify(tokens, null, 2));
-                        this.log('Xác thực thành công!', 'success');
+                        this.log('Authentication successful!', 'success');
                     } else {
-                        this.log(`Xác thực không thành công! ${authResult.error}`, 'error');
+                        this.log(`Authentication failed! ${authResult.error}`, 'error');
                         continue;
                     }
                 } else {
-                    this.log('Sử dụng token đã lưu.', 'info');
+                    this.log('Using saved token.', 'info');
                 }
 
                 const taskListResult = await this.getTaskListByGroup(token, 'calendar');
                 if (taskListResult.success) {
                     const readyTask = taskListResult.data.calendar.tasks[0].find(task => task.status === 'READ');
                     if (readyTask) {
-                        this.log(`Tìm thấy nhiệm vụ Daily Rewards Calendar sẵn sàng. Order: ${readyTask.order}`, 'info');
+                        this.log(`Found ready Daily Rewards Calendar task. Order: ${readyTask.order}`, 'info');
                         const executeResult = await this.executeTaskByOrder(token, 'calendar', readyTask.order);
                         if (executeResult.success && executeResult.data.result) {
-                            this.log('Daily Rewards Calendar được hoàn thành', 'success');
+                            this.log('Daily Rewards Calendar completed', 'success');
                         } else {
-                            this.log('Không thể hoàn thành Daily Rewards Calendar', 'error');
+                            this.log('Unable to complete Daily Rewards Calendar', 'error');
                         }
                     } else {
-                        this.log('Không có nhiệm vụ Daily Rewards Calendar nào sẵn sàng', 'warning');
+                        this.log('No Daily Rewards Calendar task ready', 'warning');
                     }
                 } else {
-                    this.log(`Không thể lấy danh sách nhiệm vụ: ${taskListResult.error}`, 'error');
+                    this.log(`Unable to get task list: ${taskListResult.error}`, 'error');
                 }
 
                 let userInfoResult = await this.getUserInfo(token);
@@ -275,10 +275,10 @@ class Rating {
                     while (ticket > 0) {
                         const spinResult = await this.spinRoulette(token);
                         if (spinResult.success) {
-                            this.log(`Spin thành công, nhận được ${spinResult.data.score} score`, 'success');
+                            this.log(`Spin successful, received ${spinResult.data.score} score`, 'success');
                             ticket--;
                         } else {
-                            this.log(`Spin không thành công: ${spinResult.error}`, 'error');
+                            this.log(`Spin failed: ${spinResult.error}`, 'error');
                             break;
                         }
                         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -288,12 +288,12 @@ class Rating {
                     if (userInfoResult.success) {
                         energy = userInfoResult.data.balances.find(b => b.key === 'energy').count;
                         ticket = userInfoResult.data.balances.find(b => b.key === 'ticket').count;
-                        this.log(`Sau khi spin - Energy: ${energy}, Ticket: ${ticket}`, 'custom');
+                        this.log(`After spin - Energy: ${energy}, Ticket: ${ticket}`, 'custom');
                     }
 
                     await this.processAllTaskLists(token);
                 } else {
-                    this.log(`Không thể lấy thông tin người dùng: ${userInfoResult.error}`, 'error');
+                    this.log(`Unable to get user info: ${userInfoResult.error}`, 'error');
                 }
 
                 await new Promise(resolve => setTimeout(resolve, 1000));

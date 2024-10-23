@@ -233,7 +233,7 @@ class Rating {
                     this.log(`Cannot check proxy IP: ${error.message}`, 'warning');
                 }
 
-                console.log(`========== Account ${i + 1} | ID: ${userId} | IP: ${proxyIP} ==========`);
+                console.log(`🔹 ========== Account ${i + 1} | ID: ${userId} | IP: ${proxyIP} ==========`);
 
                 this.log(`Authenticating account ${userId}...`, 'info');
                 let token = tokens[userId];
