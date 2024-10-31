@@ -22,6 +22,10 @@ class Rating {
             "Sec-Fetch-Site": "same-site",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36 Edg/129.0.0.0"
         };
+        this.rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stdout
+        });
     }
 
     log(msg, type = 'info') {
@@ -161,10 +165,12 @@ class Rating {
                     const openTasks = tasks.filter(task => task.status === 'OPEN');
 
                     this.log(`Open tasks for ${group}:`, 'info');
-                    openTasks.forEach(task => this.log(`- ${task.title} (ID: ${task.id})`, 'custom'));
+                    openTasks.forEach(task => this.log(`- ${task.title} (ID: ${task.id}) [Type: ${task.type}]`, 'custom'));
 
                     for (const task of openTasks) {
-                        if (task.action === 'link') {
+                        if (task.type && task.type.startsWith('app_')) {
+                            await this.processAppTask(token, task, group);
+                        } else if (task.action === 'link') {
                             await this.processLinkTask(token, task, group);
                         }
                     }
@@ -174,6 +180,35 @@ class Rating {
             } catch (error) {
                 this.log(`Error processing ${group} tasks: ${error.message}`, 'error');
             }
+        }
+    }
+
+    async processAppTask(token, task, group) {
+        try {
+            await axios.post('https://api.ratingtma.com/task/task.app',
+                { group, task: task.id, action: 'app' },
+                { headers: { ...this.headers, Authorization: token } }
+            );
+            await axios.post('https://api.ratingtma.com/task/task.data',
+                { task: task.id },
+                { headers: { ...this.headers, Authorization: token } }
+            );
+            const response = await this.getTaskListByGroup(token, group);
+            if (response.success) {
+                const updatedTask = response.data[group].tasks.flat().find(t => t.id === task.id);
+                
+                if (updatedTask && updatedTask.order) {
+                    const executeResult = await this.executeTaskByOrder(token, group, updatedTask.order);
+                    if (executeResult.success && executeResult.data.result) {
+                        const reward = task.item[0]?.count || 'unknown';
+                        this.log(`Successfully completed APP task ${task.title} | reward ${reward}`, 'success');
+                    } else {
+                        this.log(`Unable to complete APP task ${task.title}`, 'error');
+                    }
+                }
+            }
+        } catch (error) {
+            this.log(`Error processing APP task ${task.id}: ${error.message}`, 'error');
         }
     }
 
@@ -209,22 +244,64 @@ class Rating {
             this.log(`Error processing task ${task.id}: ${error.message}`, 'error');
         }
     }
+    async checkMinigameList(token) {
+        const url = "https://api.ratingtma.com/game/minigame.list?force_execut=true";
+        const headers = {
+            ...this.headers,
+            "Authorization": token,
+            "Content-Hello": Math.random().toString(),
+            "Content-Id": Math.random().toString()
+        };
+        try {
+            const response = await axios.get(url, { headers });
+            if (response.status === 200 && response.data.response) {
+                const comboDay = response.data.response.find(game => game.key === 'combo_day');
+                return { success: true, hasLock: comboDay?.lock !== undefined };
+            }
+            return { success: false, error: 'Invalid response format' };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+    async submitCombo(token, combo) {
+        const url = "https://api.ratingtma.com/game/minigame.combo";
+        const headers = {
+            ...this.headers,
+            "Authorization": token,
+            "Content-Hello": Math.random().toString(),
+            "Content-Id": Math.random().toString()
+        };
+        const changes = combo.split(',').map(item => item.trim());
+        try {
+            const response = await axios.post(url, { changes }, { headers });
+            if (response.status === 200 && response.data.response) {
+                return { success: true, score: response.data.response.score };
+            }
+            return { success: false, error: 'Invalid response format' };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+    async promptCombo() {
+        return new Promise((resolve) => {
+            this.rl.question('Enter today\'s combo code (e.g., strawberry,orange,watermelon): ', (answer) => {
+                resolve(answer.trim());
+            });
+        });
+    }
 
     async main() {
         const dataFile = path.join(__dirname, 'data.txt');
-        const tokenFile = path.join(__dirname, 'token.json');
         const data = fs.readFileSync(dataFile, 'utf8')
             .replace(/\r/g, '')
             .split('\n')
             .filter(Boolean);
+        printLogo();
+        const comboInput = await this.promptCombo();
 
-        let tokens = {};
-        if (fs.existsSync(tokenFile)) {
-            tokens = JSON.parse(fs.readFileSync(tokenFile, 'utf8'));
-        }
-
+        this.rl.close();
+    
         while (true) {
-            printLogo();
             for (let i = 0; i < data.length; i++) {
                 const auth = data[i];
                 const userId = JSON.parse(decodeURIComponent(auth.split('user=')[1].split('&')[0])).id;
@@ -232,20 +309,26 @@ class Rating {
                 console.log(`🔹 ========== Account ${i + 1} | ID: ${userId} ==========`);
                 
                 this.log(`Authenticating account ${userId}...`, 'info');
-                let token = tokens[userId];
-                if (!token) {
                     const authResult = await this.authenticate(auth);
-                    if (authResult.success) {
-                        token = authResult.token;
-                        tokens[userId] = token;
-                        fs.writeFileSync(tokenFile, JSON.stringify(tokens, null, 2));
-                        this.log('Authentication successful!', 'success');
-                    } else {
+                    if (!authResult.success) {
                         this.log(`Authentication failed! ${authResult.error}`, 'error');
                         continue;
                     }
-                } else {
-                    this.log('Using saved token.', 'info');
+                
+                    const token = authResult.token;
+                    this.log('Authentication successful!', 'success');
+                    if (comboInput) {
+                        const minigameListResult = await this.checkMinigameList(token);
+                        if (minigameListResult.success && !minigameListResult.hasLock) {
+                            const comboResult = await this.submitCombo(token, comboInput);
+                            if (comboResult.success) {
+                                this.log(`Combo input successful..score: ${comboResult.score}`, 'success');
+                            } else {
+                                this.log(`Combo input failed: ${comboResult.error}`, 'error');
+                            }
+                        } else if (minigameListResult.hasLock) {
+                            this.log('Combo Day has already been used today', 'warning');
+                    }
                 }
 
                 const taskListResult = await this.getTaskListByGroup(token, 'calendar');
